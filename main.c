@@ -5,7 +5,6 @@
 int main(void)
 {
   int reval = SUCCESS;
-  int length = 30;
   char filename[30];
   char* filename2 = "file2.txt";
   FILE* fptr;
