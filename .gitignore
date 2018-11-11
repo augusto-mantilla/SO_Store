@@ -1,0 +1,8 @@
+# ignore text files
+*.txt
+
+#ignore object files
+*.o
+
+#ignore all copies
+*~
