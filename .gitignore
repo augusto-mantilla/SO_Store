@@ -6,3 +6,6 @@
 
 #ignore all copies
 *~
+
+#ignore binary
+file
