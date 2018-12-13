@@ -1,15 +1,19 @@
-#The compiler to use will be CC represents the variable we will use.
-CC=gcc
-#CFLAGS will be the options we will pass to the compiler.
-CFLAGS=-c -Wall
+#
+#
+#	Makefile for test programs
+#
+#
 
-all: file
 
-file: main.o file.o
-	$(CC) file.o main.o -o file
-main.o: main.c
-	$(CC) $(CFLAGS) main.c -o main.o
-file.o: file.c file.h
-	$(CC) $(CFLAGS) file.c -o file.o
+all: monitor simulador
+
+monitor: monitor.o util.o util-stream-client.o
+	gcc -o monitor monitor.o util.o util-stream-client.o 
+
+simulador: simulador.o util.o util-stream-server.o
+	gcc -o simulador simulador.o util.o util-stream-server.o 
+
 clean:
-	rm *.o file
+	rm -f *.o *~ monitor simulador
+
+
