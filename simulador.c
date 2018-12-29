@@ -5,6 +5,19 @@
 #include "unix.h"
 /* Servidor do tipo socket stream.
    Recebe linhas do cliente e reenvia-as para o cliente */
+
+
+#define NP 26 //number of products 
+
+int product[NP]; /*letters from A to Z, the position is the type of product and 
+		  each position contains the number of products from that type*/
+
+//recebe a posição do array e retorna o nome do produto
+int trans_prod_name(int pos)
+{
+  return a + 65;
+}
+
 int main(void)
 {
   int sockfd, newsockfd, clilen, childpid, servlen;
