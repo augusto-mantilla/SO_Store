@@ -81,3 +81,7 @@ void print_queue(Queue *Q)
   while(i != (Q->rear + 1) % Q->capacity);
 }
 
+int queue_length(Queue *Q)
+{
+  return Q->size;
+}

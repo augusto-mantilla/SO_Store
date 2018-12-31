@@ -24,4 +24,5 @@ int isin(Queue *Q, int element);
 //escreve no terminal todos os elementos da fila 'Q'
 void print_queue(Queue *Q);
 
+int queue_length(Queue *Q);
 #endif
