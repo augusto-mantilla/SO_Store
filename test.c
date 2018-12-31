@@ -71,8 +71,10 @@ void* employee(void* store)
 }
 */
  //isto supõe que as desistências seguem uma distribuição de poisson
-void withdrawal(int id, int time, pthread_mutex_t* mut1)
+int withdrawal(int id, int time, pthread_mutex_t* mut1, int* num_wait)
 {
+  int sval;
+  int ret;
   printf("time = %d\n", time);
   double l = nwd*(time);
   int prob = (int)((l/exp(l))*100);
@@ -81,13 +83,15 @@ void withdrawal(int id, int time, pthread_mutex_t* mut1)
   if(random <= prob){
     pthread_mutex_lock(mut1);
     printf("O cliente %d desistiu durante à espera\n", id);
-    --my_store.cli_gen_wait;
+    --(*num_wait);
     pthread_mutex_unlock(mut1);
-    pthread_mutex_lock(&join);
-    pthread_join(pthread_self(), NULL);
     enqueue(my_store.withdraw, pthread_self());
-    pthread_mutex_unlock(&join);
+    ret = 1;
   }
+  else {
+    ret = 0;
+  }
+  return ret;
 }
 
 void* client_gen(void* store)
@@ -110,8 +114,9 @@ void* client_gen(void* store)
   pthread_mutex_unlock(&mut_waitgc);
 
   time(&end);
-  //  withdrawal(id, end-beg, &mut_waitgc);
 
+  if(!withdrawal(id, end-beg, &mut_waitgc, &ms->cli_gen_wait))
+    {
   pthread_mutex_lock(&mut_advancegc);
 
   printf("Cliente geral %d passa ao balcão\n", id);
@@ -131,6 +136,12 @@ void* client_gen(void* store)
     pthread_mutex_unlock(&mut_advancegc);
   }
   pthread_mutex_unlock(&mut_waitgc);
+    }
+  else if(ms->cli_gen_wait == 0)
+    {
+      pthread_mutex_unlock(&mut_advancepc);
+    }
+
   sem_post(&sem_store);
 
   printf("Cliente geral %d saiu da loja\n", id);
@@ -157,26 +168,32 @@ void* client_pre(void* store)
   printf("Número de clientes preferencias à espera: %d\n", ms->cli_pre_wait);
   pthread_mutex_unlock(&mut_waitpc);
   time(&end);
-  withdrawal(id, end-beg +1, &mut_waitpc);
-  pthread_mutex_lock(&mut_advancepc);
-  printf("Cliente preferecial %d passou ao balcão\n", id);
-  //  sleep(2);
 
-  pthread_mutex_lock(&mut_waitpc);
-  if(ms->cli_pre_wait > 0)
-    --ms->cli_pre_wait;
+  if(!withdrawal(id, end-beg +1, &mut_waitpc, &ms->cli_pre_wait))
+    {
+      pthread_mutex_lock(&mut_advancepc);
+      printf("Cliente preferecial %d passou ao balcão\n", id);
+      //  sleep(2);
+
+      pthread_mutex_lock(&mut_waitpc);
+      if(ms->cli_pre_wait > 0)
+	--ms->cli_pre_wait;
   
-  if((ms->cli_pre_atte > att_pmax && ms->cli_gen_wait > 0) || ms->cli_pre_wait == 0) {
-    ms->cli_pre_atte = 0;
-    printf("Passa da fila com prioridade para a fila geral\n");
-    pthread_mutex_unlock(&mut_advancegc);
-  }
-  else {
-    ++ms->cli_pre_atte;
-    pthread_mutex_unlock(&mut_advancepc);
-  }
-  pthread_mutex_unlock(&mut_waitpc);
-  
+      if((ms->cli_pre_atte > att_pmax && ms->cli_gen_wait > 0) || ms->cli_pre_wait == 0) {
+	ms->cli_pre_atte = 0;
+	printf("Passa da fila com prioridade para a fila geral\n");
+	pthread_mutex_unlock(&mut_advancegc);
+      }
+      else {
+	++ms->cli_pre_atte;
+	pthread_mutex_unlock(&mut_advancepc);
+      }
+      pthread_mutex_unlock(&mut_waitpc);
+    }
+  else if( ms->cli_pre_wait == 0)
+    {
+      pthread_mutex_unlock(&mut_advancegc);
+    }
   printf("Cliente preferencial %d saiu da loja\n", id);
   sem_post(&sem_store);
   
@@ -196,7 +213,7 @@ int main()
   
   for(i = 0; i < 200; i++) {
     j = rand() % 10;
-    if(j >= 0 && j < 5) {
+    if(j >= 0 && j < 2) {
       if(pthread_create(&thread_id[i], NULL, client_pre, (void*)&my_store)
 	 != 0)
 	{
@@ -216,9 +233,7 @@ int main()
 
   for(i = 0; i < 200; i++) {
     if(!isin(my_store.withdraw, thread_id[i])){
-      pthread_mutex_lock(&join);
       pthread_join(thread_id[i], NULL);
-      pthread_mutex_unlock(&join);
     }
   }
   sem_destroy(&sem_store);
