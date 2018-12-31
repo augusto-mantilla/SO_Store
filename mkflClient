@@ -1,2 +1,11 @@
-all:
-	gcc test.c -o test -lpthread -lrt
+test: queue.o test.o
+	gcc test.o queue.o -o test -lpthread -lrt -lm
+
+queue.o: queue.c
+	gcc -c -Wall queue.c 
+
+test.o: test.c
+	gcc -c -Wall test.c 
+
+clean:
+	rm *.o test
