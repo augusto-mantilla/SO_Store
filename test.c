@@ -49,6 +49,8 @@ pthread_cond_t cont = PTHREAD_COND_INITIALIZER;
 int nwd = 1; //numero medio de desistencias por minuto
 int att_gmax = 2; //número máximo de clientes gerais atendidos antes de passar à outra classe
 int att_pmax = 5; //número máximo de clientes prioritarios atendidos antes de passar à outra clase
+pthread_mutex_t wd = PTHREAD_MUTEX_INITIALIZER;
+
 //recebe a posição do array e retorna o nome do produto
 
 
@@ -85,7 +87,9 @@ int withdrawal(int id, int time, pthread_mutex_t* mut1, int* num_wait)
     printf("O cliente %d desistiu durante à espera\n", id);
     --(*num_wait);
     pthread_mutex_unlock(mut1);
-    enqueue(my_store.withdraw, pthread_self());
+    pthread_mutex_lock(&wd);
+    enqueue(my_store.withdraw, id);
+    pthread_mutex_unlock(&wd);
     ret = 1;
   }
   else {
@@ -237,5 +241,7 @@ int main()
     }
   }
   sem_destroy(&sem_store);
+  print_queue(my_store.withdraw);
+  printf("length of the queue = %d\n", queue_length(my_store.withdraw));
   return 0;
 }
