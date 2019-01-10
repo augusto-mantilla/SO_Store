@@ -28,6 +28,16 @@ int str_to_int(char* str)
   return total;
 }
 
+//le um valor inteiro da consola
+void scan_int(unsigned int* d)
+{
+  if(scanf("%u", d)) {
+    printf("Introduziu o valor: %u\n", *d);
+  }
+  else {
+    printf("Format error: Introduza um número inteiro\n");
+  } 
+}
 //separa uma string em varias delimitadas por a_delim
 char** str_split(char* a_str, const char a_delim)
 {

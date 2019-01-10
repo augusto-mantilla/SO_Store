@@ -17,10 +17,11 @@
 #define _GNU_SOURCE
 
 #define NP 26 //number of products 
-#define MAX_CLIENTS 200 //maximum number of clients allowed in the store
+#define MAX_CLIENTS 20000 //maximum number of clients allowed in the store
 #define MAX_EMPLOYEES 20 //maximum number of employees
 #define RAT_MAX 10 /*o numero de vezes que o numero de clientes pode exeder o 
 		     numero de empregados*/
+#define PARAMETERS 4 //numero de parametros que aparecem no ficheiro de configuracao
 #define MAX_DESKS 20 //numero maximo de empregados no balcao
 #define MAX_SHELVES 20 //numero maximo de prateleiras
 int product[NP]; /*letters from A to Z, the position is the type of product and 
@@ -58,10 +59,10 @@ int nwd = 1; //numero medio de desistencias por minuto
 int att_gmax = 2; //numero maximo de clientes gerais atendidos antes de passar a outra classe
 int att_pmax = 5; //numero maximo de clientes prioritarios atendidos antes de passar a outra clase
 pthread_mutex_t wd = PTHREAD_MUTEX_INITIALIZER;
-int average_clients;
-int service_time;
-int withdrawal_prob;
-int simulation_time;
+unsigned int average_clients;
+unsigned int service_time;
+unsigned int withdrawal_prob;
+unsigned int simulation_time;
 int sockfd, newsockfd, clilen, childpid, servlen;
 struct sockaddr_un cli_addr, serv_addr;
 
@@ -75,7 +76,7 @@ int withdrawal(int id, int time, pthread_mutex_t* mut1, int* num_wait)
 {
   int sval;
   int ret;
-  printf("time = %d\n", time);
+  //printf("time = %d\n", time);
   double l = nwd*(time);
   int prob = (int)((l/exp(l))*100);
   int random = (rand()%100) + 1;
@@ -115,23 +116,22 @@ void* client_gen(void* store)
   ++ms->cli_gen_wait;
   printf("Numero de clientes gerais a espera: %d\n", ms->cli_gen_wait);
   pthread_mutex_unlock(&mut_waitgc);
-  send_message(sockfd, message, strlen(message) + 1);
+  //send_message(sockfd, message);
   time(&end);
 
-  if(!withdrawal(id, end-beg, &mut_waitgc, &ms->cli_gen_wait))
-    {
-  pthread_mutex_lock(&mut_advancegc);
+  if(!withdrawal(id, end-beg, &mut_waitgc, &ms->cli_gen_wait)){
+    pthread_mutex_lock(&mut_advancegc);
 
-  printf("Cliente geral %d passa ao balcao\n", id);
+    printf("Cliente geral %d passa ao balcao\n", id);
   //  sleep(2);
-  pthread_mutex_lock(&mut_waitgc);
+    pthread_mutex_lock(&mut_waitgc);
 
-  if(ms->cli_gen_wait > 0)
-    --ms->cli_gen_wait;
+    if(ms->cli_gen_wait > 0)
+      --ms->cli_gen_wait;
   
-  if((ms->cli_gen_atte > att_gmax  && ms->cli_pre_wait > 0) || ms->cli_gen_wait == 0) {
-    ms->cli_gen_atte = 0;
-    printf("Passa da fila geral para a fila com prioridade\n");
+    if((ms->cli_gen_atte > att_gmax  && ms->cli_pre_wait > 0) || ms->cli_gen_wait == 0) {
+      ms->cli_gen_atte = 0;
+      printf("Passa da fila geral para a fila com prioridade\n");
     pthread_mutex_unlock(&mut_advancepc);
   }
   else {
@@ -172,7 +172,7 @@ void* client_pre(void* store)
   printf("Numero de clientes preferencias a espera: %d\n", ms->cli_pre_wait);
   pthread_mutex_unlock(&mut_waitpc);
   time(&end);
-  send_message(sockfd, message, strlen(message) + 1);
+  //  send_message(sockfd, message);
   if(!withdrawal(id, end-beg +1, &mut_waitpc, &ms->cli_pre_wait))
     {
       pthread_mutex_lock(&mut_advancepc);
@@ -204,8 +204,14 @@ void* client_pre(void* store)
   return NULL;
 }
 
+print_error(char* description) {
+  printf("%s\n", description);
+  exit(1);
+}
 int main(int argc, char* argv[])
 {	
+  time_t beg_sim, this_inst;
+  time(&beg_sim);
   pthread_t thread_id[MAX_CLIENTS];
   my_store.withdraw = create_queue(MAX_CLIENTS);
   sem_init(&sem_store, 0, NP);
@@ -248,32 +254,46 @@ int main(int argc, char* argv[])
     char* filename = (char*)malloc(sizeof(char)*strlen(argv[1] + 1));
     
     if(filename != NULL) {
-      printf("in if filename != null\n");
+      //      printf("in if filename != null\n");
       strcpy(filename, argv[1]);
-      printf("filename = %s\n", filename);
+      //      printf("filename = %s\n", filename);
       FILE* file = fopen(filename, "r");
-      
       if(file != NULL) {
-	printf("Opened the file\n");
+	//printf("Opened the file\n");
 	int i = 0;
 	char string[50];
-	char* variable_name[5];
-	int values[10];
-	while(!feof(file)) {
+	char* variable_name[PARAMETERS];
+	int values[PARAMETERS];
+	while(!feof(file) && i < PARAMETERS) {
 	  fscanf(file, "%s\n", string);
-	  printf("string = %s\n", string);
+	  //printf("string = %s\n", string);
 	  char** token = str_split(string, ':');
-	  printf("string1 = %s, string2 = %s\n", token[0], token[1]);
+	  //printf("string1 = %s, string2 = %s\n", token[0], token[1]);
+	  variable_name[i] = token[0];
 	  values[i] = str_to_int(token[1]);
 	  i++;
 	}
-	for(int j = 0; j < i; j++) {
-	  printf("Value %d = %d\n", j, values[j]);
-	}
-	average_clients = values[0];
-	service_time = values[1];
-	withdrawal_prob = values[2];
-	simulation_time = values[3];
+
+	if(strcmp(variable_name[0], "average_clients") == 0)
+	  average_clients = values[0];
+	else
+	  print_error("Erro de formatação do ficheiro de configuração");
+
+	if(strcmp(variable_name[1], "service_time") == 0)
+	  service_time = values[1];
+	else
+	  print_error("Erro de formatação do ficheiro de configuração");
+
+	if(strcmp(variable_name[2], "withdrawal_prob") == 0)
+	  withdrawal_prob = values[2];
+	else
+	  print_error("Erro de formatação do ficheiro de configuração");
+	
+	if(strcmp(variable_name[3], "simulation_time") == 0)
+	  simulation_time = values[3];
+	else
+	  print_error("Erro de formatação do ficheiro de configuração");
+	
 	fclose(file);
       }
       else {
@@ -281,8 +301,8 @@ int main(int argc, char* argv[])
       }
       if(argc == 4) {
 	if(strcmp(argv[2], "-t") == 0) {
-	  int time = str_to_int(argv[3]);
-	  printf("Time = %d\n", time);
+	  simulation_time = str_to_int(argv[3]);
+	  printf("Time = %d\n", simulation_time);
 	}
       }
     }
@@ -291,13 +311,13 @@ int main(int argc, char* argv[])
     char* filename = "simulacao.conf";
     FILE* file;
     printf("Introduza o numero medio de clientes que chegam por minuto\n");
-    scanf("%d", &average_clients);
+    scan_int(&average_clients);
     printf("Introduza o tempo medio de atendimento\n");
-    scanf("%d", &service_time);
+    scan_int(&service_time);
     printf("Introduza a probabilidade de desistencia dos clientes (de 0 a 100)\n");
-    scanf("%d", &withdrawal_prob);
+    scan_int(&withdrawal_prob);
     printf("Introduza o tempo de simulacao\n");
-    scanf("%d", &simulation_time);
+    scan_int(&simulation_time);
     printf("Values: %d, %d, %d, %d\n", average_clients, service_time,
 	   withdrawal_prob, simulation_time);
     if((file = fopen(filename, "w")) == NULL) {
@@ -312,11 +332,13 @@ int main(int argc, char* argv[])
       fclose(file);
     }
   }
-
-  for(int i = 0; i < 200; i++) {
+  int num_client_threads = 0;
+  time(&this_inst);
+  while(num_client_threads < MAX_CLIENTS &&
+	(this_inst - beg_sim) > simulation_time ) {
     int j = rand() % 10;
     if(j >= 0 && j < 2) {
-      if(pthread_create(&thread_id[i], NULL, client_pre, (void*)&my_store)
+      if(pthread_create(&thread_id[num_client_threads], NULL, client_pre, (void*)&my_store)
 	 != 0)
 	{
 	  printf("erro na criação da tarefa\n");
@@ -324,23 +346,24 @@ int main(int argc, char* argv[])
 	}
     }
     else {
-      if(pthread_create(&thread_id[i], NULL, client_gen, (void*)&my_store)
+      if(pthread_create(&thread_id[num_client_threads], NULL, client_gen, (void*)&my_store)
 	 != 0)
 	{
 	  printf("erro na criação da tarefa\n");
 	  exit(1);
 	}
     }
+    num_client_threads++;
   }
 
-  for(int i = 0; i < 200; i++) {
-    if(!isin(my_store.withdraw, thread_id[i])){
-      pthread_join(thread_id[i], NULL);
+  for(int j = 0; j < num_client_threads; j++) {
+    if(!isin(my_store.withdraw, thread_id[j])){
+      pthread_join(thread_id[j], NULL);
     }
   }
   sem_destroy(&sem_store);
-  print_queue(my_store.withdraw);
-  printf("length of the queue = %d\n", queue_length(my_store.withdraw));
+  //  print_queue(my_store.withdraw);
+  //  printf("length of the queue = %d\n", queue_length(my_store.withdraw));
 
   close(newsockfd);
     
