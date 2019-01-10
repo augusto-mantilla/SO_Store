@@ -102,8 +102,8 @@ void *client (void *numberShelf){
 
 void *producer(void *numberShelf){
     int shelf = *((int *) numberShelf);
-    printf("refilling... \t\t\t\t shelf: %d \n", shelf);
     pthread_mutex_lock(&producersActive);
+        printf("refilling... \t\t\t\t shelf: %d \n", shelf);
         numberProducersActive++;
     pthread_mutex_unlock(&producersActive);
 
@@ -120,6 +120,7 @@ void *producer(void *numberShelf){
     pthread_mutex_lock(&producersActive);
         numberProducersActive--;
     pthread_mutex_unlock(&producersActive);
+    pthread_exit(NULL);
 }
 
 
