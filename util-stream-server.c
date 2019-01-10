@@ -3,8 +3,7 @@
 /* Servidor do tipo socket stream.
    Manda linhas recebidas de volta para o cliente */
 
-void str_echo(sockfd)
-int sockfd;
+void str_echo(int sockfd)
 {
   int n, i;
   char line[MAXLINE];
@@ -19,23 +18,12 @@ int sockfd;
     else if (n < 0)
       err_dump("str_echo: readline error");
 
-    /*
-    line[0] = '1';
-    line[1] = '1';
-    line[2] = '2';
-    line[3] = '-';
-    line[4] = '2';
-    line[5] = '5';
-    line[6] = '5';
-    line[7] = '-';
-    line[8] = '3';
-    line[9] = '8';
-    line[10] = '3';
-    line[11] = '-';
-    line[12] = '3';
-    line[13] = '2';
-    line[14] = '3';
-    n = 15;*/
+    if(strcmp(line, "start") != 0) {
+      printf("Introduza no monitor a opção 'start' para iniciar a simulacao");
+    }
+    else {
+      
+    }
 
     /* Manda linha de volta para o socket. n conta com
        o \0 da string, caso contr�rio perdia-se sempre 
@@ -44,3 +32,11 @@ int sockfd;
       err_dump("str_echo: writen error");
   }
 }
+
+void send_message(int socket, char* message)
+{
+  int n = strlen(message) + 1;
+  if(writen(socket, message, n) != n)
+    err_dump("error sending the message\n");
+}
+

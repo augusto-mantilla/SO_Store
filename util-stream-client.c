@@ -1,8 +1,10 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <syscall.h>
 #include <unistd.h>
 #include <sys/types.h>
 #include <string.h>
+#include "file.h"
 #define MAXLINE 512
 
 /* Cliente do tipo socket stream.
@@ -15,33 +17,15 @@ int sockfd;
 {
   int n;
   char sendline[MAXLINE], recvline[MAXLINE+1];
-
-  while (fgets(sendline, MAXLINE, fp) != NULL) {
-
-    // ########################################
+  char** client;
+  while (1/*fgets(sendline, MAXLINE, fp) != NULL*/) {
     
-    char** client = malloc(sizeof sendline);
-    *(client) = strtok(sendline, "-");
-    int i = 0;
-  
-    while(*(client + i)) {
-      i += 1;
-      *(client + i) = strtok(NULL, "-");
-      }
-    
-    printf("Client com id %s entrou na loja\n", *(client));
-    printf("Client com id %s fez um pedido\n", *(client + 1));
-    printf("Client com id %s recebeu o pedido\n", *(client + 2));
-    printf("Client com id %s desistiu\n", *(client + 3));
-    free(client);
-    // ########################################
-
     /* Envia string para sockfd. Note-se que o \0 nƒo 
        ‰ enviado */
-
+    /*
     n = strlen(sendline);
     if (writen(sockfd, sendline, n) != n)
-      err_dump("str_cli: writen error on socket");
+    err_dump("str_cli: writen error on socket");*/
 
     /* Tenta ler string de sockfd. Note-se que tem de 
        terminar a string com \0 */
@@ -52,12 +36,14 @@ int sockfd;
     recvline[n] = 0;
 
     /* Envia a string para stdout */
-    
-    
-    
-    
-    fputs(recvline, stdout);
+    client = str_split(recvline, '-');
+    printf("Client com id %s entrou na loja\n", client[0]);
+    printf("Client com id %s fez um pedido\n", client[1]);
+    printf("Client com id %s recebeu o pedido\n", client[2]);
+    printf("Client com id %s desistiu\n", client[3]);
   }
+  free(client);
   if (ferror(fp))
     err_dump("str_cli: error reading file");
 }
+

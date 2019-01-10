@@ -1,28 +1,214 @@
 #include <syscall.h>
 #include <unistd.h>
-#include <sys/types.h>
 #include <string.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <pthread.h>
+#include <semaphore.h>
+#include <time.h>
+#include <sched.h>
+#include <sys/types.h>
+#include <math.h>
+#include "queue.h"
+#include "file.h"
 #include "unix.h"
 /* Servidor do tipo socket stream.
    Recebe linhas do cliente e reenvia-as para o cliente */
-
+#define _GNU_SOURCE
 
 #define NP 26 //number of products 
-
+#define MAX_CLIENTS 200 //maximum number of clients allowed in the store
+#define MAX_EMPLOYEES 20 //maximum number of employees
+#define RAT_MAX 10 /*o numero de vezes que o numero de clientes pode exeder o 
+		     numero de empregados*/
+#define MAX_DESKS 20 //numero maximo de empregados no balcao
+#define MAX_SHELVES 20 //numero maximo de prateleiras
 int product[NP]; /*letters from A to Z, the position is the type of product and 
 		  each position contains the number of products from that type*/
 
-//recebe a posi√ß√£o do array e retorna o nome do produto
+typedef struct { //mantem a informacao sobre os balcoes de atendimento
+  int desks[MAX_DESKS];
+  int shelves[MAX_SHELVES];
+  sem_t busy_desk;
+  sem_t free_desk;
+  sem_t busy_shelv;
+  sem_t free_shelv;
+  int nextEmp;
+  int nextClient;
+  int cli_gen_atte;
+  int cli_pre_atte;
+  int cli_gen_wait;
+  int cli_pre_wait;
+  int opened_desks;
+  int is_open;
+  Queue* withdraw;
+}Store;
+
+Store my_store;   //estrutura que contem variaveis de estado da loja
+pthread_mutex_t mut_id = PTHREAD_MUTEX_INITIALIZER;     //trinco que controla a atualiza√ß√£o do id
+pthread_mutex_t mut_waitpc = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mut_waitgc = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mut_advancepc = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mut_advancegc = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t join = PTHREAD_MUTEX_INITIALIZER;
+sem_t sem_store; //semaforo que controla o acesso a loja
+int n;           //numero de clientes criados
+pthread_cond_t cont = PTHREAD_COND_INITIALIZER;
+int nwd = 1; //numero medio de desistencias por minuto
+int att_gmax = 2; //numero maximo de clientes gerais atendidos antes de passar a outra classe
+int att_pmax = 5; //numero maximo de clientes prioritarios atendidos antes de passar a outra clase
+pthread_mutex_t wd = PTHREAD_MUTEX_INITIALIZER;
+int average_clients;
+int service_time;
+int withdrawal_prob;
+int simulation_time;
+int sockfd, newsockfd, clilen, childpid, servlen;
+struct sockaddr_un cli_addr, serv_addr;
+
+//recebe a posicao do array e retorna o nome do produto
 int trans_prod_name(int pos)
 {
-  return a + 65;
+  return pos + 65;
 }
 
-int main(void)
+int withdrawal(int id, int time, pthread_mutex_t* mut1, int* num_wait)
 {
-  int sockfd, newsockfd, clilen, childpid, servlen;
-  struct sockaddr_un cli_addr, serv_addr;
-	
+  int sval;
+  int ret;
+  printf("time = %d\n", time);
+  double l = nwd*(time);
+  int prob = (int)((l/exp(l))*100);
+  int random = (rand()%100) + 1;
+  //  printf("Probabilidade = %d, random = %d\n", prob, random);
+  if(random <= prob){
+    pthread_mutex_lock(mut1);
+    printf("O cliente %d desistiu durante a espera\n", id);
+    --(*num_wait);
+    pthread_mutex_unlock(mut1);
+    pthread_mutex_lock(&wd);
+    enqueue(my_store.withdraw, id);
+    pthread_mutex_unlock(&wd);
+    ret = 1;
+  }
+  else {
+    ret = 0;
+  }
+  return ret;
+}
+
+void* client_gen(void* store)
+{
+  Store* ms = (Store*) store;
+  time_t beg, end;
+  time(&beg);
+  int sem_val;
+  int i;
+  char* message = "12-32-34-23";
+  sem_wait(&sem_store);
+  pthread_mutex_lock(&mut_id);
+  n++;
+  int id = n;
+  printf("Cliente geral %d entrou na loja\n", id);
+  pthread_mutex_unlock(&mut_id);
+  
+  pthread_mutex_lock(&mut_waitgc);
+  ++ms->cli_gen_wait;
+  printf("Numero de clientes gerais a espera: %d\n", ms->cli_gen_wait);
+  pthread_mutex_unlock(&mut_waitgc);
+  send_message(sockfd, message, strlen(message) + 1);
+  time(&end);
+
+  if(!withdrawal(id, end-beg, &mut_waitgc, &ms->cli_gen_wait))
+    {
+  pthread_mutex_lock(&mut_advancegc);
+
+  printf("Cliente geral %d passa ao balcao\n", id);
+  //  sleep(2);
+  pthread_mutex_lock(&mut_waitgc);
+
+  if(ms->cli_gen_wait > 0)
+    --ms->cli_gen_wait;
+  
+  if((ms->cli_gen_atte > att_gmax  && ms->cli_pre_wait > 0) || ms->cli_gen_wait == 0) {
+    ms->cli_gen_atte = 0;
+    printf("Passa da fila geral para a fila com prioridade\n");
+    pthread_mutex_unlock(&mut_advancepc);
+  }
+  else {
+    ++ms->cli_gen_atte;
+    pthread_mutex_unlock(&mut_advancegc);
+  }
+  pthread_mutex_unlock(&mut_waitgc);
+    }
+  else if(ms->cli_gen_wait == 0)
+    {
+      pthread_mutex_unlock(&mut_advancepc);
+    }
+
+  sem_post(&sem_store);
+
+  printf("Cliente geral %d saiu da loja\n", id);
+  return NULL;
+}
+
+void* client_pre(void* store)
+{
+  Store *ms = (Store*)store;
+  int sem_val;
+  int i;
+  time_t beg, end;
+  char* message = "12-32-34-23";
+  time(&beg);
+  sem_wait(&sem_store);
+  
+  pthread_mutex_lock(&mut_id); //fecha trinco
+  n++;
+  int id = n;
+  printf("Cliente preferencial %d entrou na loja\n", id);
+  pthread_mutex_unlock(&mut_id);//trinco_abre
+  
+  pthread_mutex_lock(&mut_waitpc);
+  ++ms->cli_pre_wait;
+  printf("Numero de clientes preferencias a espera: %d\n", ms->cli_pre_wait);
+  pthread_mutex_unlock(&mut_waitpc);
+  time(&end);
+  send_message(sockfd, message, strlen(message) + 1);
+  if(!withdrawal(id, end-beg +1, &mut_waitpc, &ms->cli_pre_wait))
+    {
+      pthread_mutex_lock(&mut_advancepc);
+      printf("Cliente preferecial %d passou ao balcao\n", id);
+      //  sleep(2);
+
+      pthread_mutex_lock(&mut_waitpc);
+      if(ms->cli_pre_wait > 0)
+	--ms->cli_pre_wait;
+  
+      if((ms->cli_pre_atte > att_pmax && ms->cli_gen_wait > 0) || ms->cli_pre_wait == 0) {
+	ms->cli_pre_atte = 0;
+	printf("Passa da fila com prioridade para a fila geral\n");
+	pthread_mutex_unlock(&mut_advancegc);
+      }
+      else {
+	++ms->cli_pre_atte;
+	pthread_mutex_unlock(&mut_advancepc);
+      }
+      pthread_mutex_unlock(&mut_waitpc);
+    }
+  else if( ms->cli_pre_wait == 0)
+    {
+      pthread_mutex_unlock(&mut_advancegc);
+    }
+  printf("Cliente preferencial %d saiu da loja\n", id);
+  sem_post(&sem_store);
+  
+  return NULL;
+}
+
+int main(int argc, char* argv[])
+{	
+  pthread_t thread_id[MAX_CLIENTS];
+  my_store.withdraw = create_queue(MAX_CLIENTS);
+  sem_init(&sem_store, 0, NP);
   /* Cria socket stream */
 
   if ((sockfd = socket(AF_UNIX,SOCK_STREAM,0)) < 0)
@@ -36,10 +222,10 @@ int main(void)
   serv_addr.sun_family = AF_UNIX;
   strcpy(serv_addr.sun_path, UNIXSTR_PATH);
 
-  /* O servidor â quem cria o ficheiro que identifica o socket.
+  /* O servidor  quem cria o ficheiro que identifica o socket.
      Elimina o ficheiro, para o caso de algo ter ficado pendurado.
      Em seguida associa o socket ao ficheiro. 
-     A dimensÉo a indicar ao bind nÉo â a da estrutura, pois depende
+     A dimensao o a indicar ao bind no  a da estrutura, pois depende
      do nome do ficheiro */
 
   servlen = strlen(serv_addr.sun_path) + sizeof(serv_addr.sun_family);
@@ -48,43 +234,115 @@ int main(void)
     err_dump("server, can't bind local address");
 
   /* Servidor pronto a aceitar 5 clientes para o socket stream */
+  printf("A espera da liga√ß√£o do monitor");
+  listen(sockfd, 1);
 
-  listen(sockfd, 5);
-
-  for (;;) {
-
-    /* NÉo esquecer que quando o servidor aceita um cliente cria um
-       socket para comunicar com ele. O primeiro socket (sockfd) fica 
-       Ä espera de mais clientes */
-
-    clilen = sizeof(cli_addr);
-    newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr,
+  clilen = sizeof(cli_addr);
+  newsockfd = accept(sockfd, (struct sockaddr *) &cli_addr,
 		       &clilen);
-    if (newsockfd < 0)
-      err_dump("server: accept error");
+  if (newsockfd < 0)
+    err_dump("server: accept error");
 
-    /* Lanáa processo filho para lidar com o cliente */
-
-    if ((childpid = fork()) < 0)
-      err_dump("server: fork error");
-
-    else if (childpid == 0) {
-
-      /* Processo filho que vai atender o cliente. 
-	 Fechar sockfd â sanitﬂrio, jﬂ que nÉo â
-	 utilizado pelo processo filho.
-	 Os dados recebidos do cliente sÉo reenviados 
-	 para o cliente */
-
-      close(sockfd);
-      str_echo(newsockfd);
+  printf("Number of arguments = %d\n", argc);
+  if(argc > 1 && argc <= 4) {
+    char* filename = (char*)malloc(sizeof(char)*strlen(argv[1] + 1));
+    
+    if(filename != NULL) {
+      printf("in if filename != null\n");
+      strcpy(filename, argv[1]);
+      printf("filename = %s\n", filename);
+      FILE* file = fopen(filename, "r");
+      
+      if(file != NULL) {
+	printf("Opened the file\n");
+	int i = 0;
+	char string[50];
+	char* variable_name[5];
+	int values[10];
+	while(!feof(file)) {
+	  fscanf(file, "%s\n", string);
+	  printf("string = %s\n", string);
+	  char** token = str_split(string, ':');
+	  printf("string1 = %s, string2 = %s\n", token[0], token[1]);
+	  values[i] = str_to_int(token[1]);
+	  i++;
+	}
+	for(int j = 0; j < i; j++) {
+	  printf("Value %d = %d\n", j, values[j]);
+	}
+	average_clients = values[0];
+	service_time = values[1];
+	withdrawal_prob = values[2];
+	simulation_time = values[3];
+	fclose(file);
+      }
+      else {
+	printf("Cannot open the file\n");
+      }
+      if(argc == 4) {
+	if(strcmp(argv[2], "-t") == 0) {
+	  int time = str_to_int(argv[3]);
+	  printf("Time = %d\n", time);
+	}
+      }
+    }
+  }
+  else {
+    char* filename = "simulacao.conf";
+    FILE* file;
+    printf("Introduza o numero medio de clientes que chegam por minuto\n");
+    scanf("%d", &average_clients);
+    printf("Introduza o tempo medio de atendimento\n");
+    scanf("%d", &service_time);
+    printf("Introduza a probabilidade de desistencia dos clientes (de 0 a 100)\n");
+    scanf("%d", &withdrawal_prob);
+    printf("Introduza o tempo de simulacao\n");
+    scanf("%d", &simulation_time);
+    printf("Values: %d, %d, %d, %d\n", average_clients, service_time,
+	   withdrawal_prob, simulation_time);
+    if((file = fopen(filename, "w")) == NULL) {
+      printf("Error openning the file\n");
       exit(0);
     }
-
-    /* Processo pai.
-       Fechar newsockfd â sanitﬂrio, jﬂ que nÉo â
-       utilizado pelo processo pai */
-    close(newsockfd);
+    else {
+      fprintf(file, "average_clients:%d\n", average_clients);
+      fprintf(file, "service_time:%d\n", service_time);
+      fprintf(file, "withdrawal_prob:%d\n", withdrawal_prob);
+      fprintf(file, "simulation_time:%d\n", simulation_time);
+      fclose(file);
+    }
   }
+
+  for(int i = 0; i < 200; i++) {
+    int j = rand() % 10;
+    if(j >= 0 && j < 2) {
+      if(pthread_create(&thread_id[i], NULL, client_pre, (void*)&my_store)
+	 != 0)
+	{
+	  printf("erro na cria√ß√£o da tarefa\n");
+	  exit(1);
+	}
+    }
+    else {
+      if(pthread_create(&thread_id[i], NULL, client_gen, (void*)&my_store)
+	 != 0)
+	{
+	  printf("erro na cria√ß√£o da tarefa\n");
+	  exit(1);
+	}
+    }
+  }
+
+  for(int i = 0; i < 200; i++) {
+    if(!isin(my_store.withdraw, thread_id[i])){
+      pthread_join(thread_id[i], NULL);
+    }
+  }
+  sem_destroy(&sem_store);
+  print_queue(my_store.withdraw);
+  printf("length of the queue = %d\n", queue_length(my_store.withdraw));
+
+  close(newsockfd);
+    
   return 0;
 }
